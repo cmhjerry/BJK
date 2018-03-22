@@ -79,7 +79,7 @@ map1<-leaflet() %>%
               values = df.polygon$Income, 
               position = "bottomright", 
               title = "Median Household Income",
-              labFormat = labelFormat(prefix = "$",transform = function(x) sort(x, decreasing = TRUE))) 
+              labFormat = labelFormat(prefix = "$"))
 map1
 
 
