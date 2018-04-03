@@ -1,0 +1,290 @@
+---
+title: "Model Selection"
+author: "Kai Wombacher"
+date: "3/30/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r eval=TRUE}
+library(ggplot2)
+library(corrplot)
+library(leaps)
+library(gridExtra)
+```
+
+##Cleaning the Data
+
+Let's begin by reading the census data
+```{r eval=TRUE}
+census_df_full = read.csv("nyc_census.csv") # read in file
+set.seed(1) # reproducibility
+dim(census_df_full)
+```
+
+Our data contains 2167 entries and 36 variables (or features)
+
+```{r eval=TRUE}
+names(census_df_full)
+```
+
+Remove columns that does not pertain to predicting median household income
+
+```{r eval=TRUE}
+census_df <- census_df_full[,-which(names(census_df_full) %in% c("Borough", 
+                                                                 "IncomeErr",
+                                                                 "IncomePerCap",
+                                                                 "IncomePerCapErr"))]
+summary(census_df)
+```
+
+Our Data still contain missing values. We will remove the rows where values are missing.
+
+```{r eval=TRUE}
+census_df_naomit <- na.omit(census_df)
+dim(census_df_naomit)
+```
+
+We will also remove the column 'County' because, while it might be preditictive, it will not contribute any interesting explanatory value. Additionally, we will remove 'White' and 'Men' because those data are repetitive as there is a 'Women' column, as well as columns for 'Asian', 'Black', 'Hispanic', and 'Native'.
+
+```{r eval=TRUE}
+census_df_rd2 <- census_df_naomit[,-which(names(census_df_naomit) %in% c("County",
+                                                                         "White",
+                                                                         "Men"))]
+dim(census_df_rd2)
+```
+
+## Exploratory Analysis
+
+First, lets look at the correlations between our variables. (Census Track not considered for same reason as borough).
+```{r eval=TRUE}
+corrMat = cor(census_df_rd2[,-1], use = "pairwise.complete.obs")
+par(mfrow = c(1,1))
+corrplot(corrMat, method = "circle")
+```
+
+TotalPopulation is highly corrlelated with Citizen (Number of Citizens). We will remove it as it is repetitive.
+
+```{r eval=TRUE}
+census_df_rd2 <- census_df_rd2[,-which(names(census_df_rd2) %in% c("TotalPop"))]
+census_df_pred <- census_df_rd2[,-which(names(census_df_rd2) %in% c("CensusTract"))]
+dim(census_df_pred)
+names(census_df_pred)
+```
+
+Now we will use Stepwise regressions to determine which features are the most predictive. To determine how many features to include in our model, we will look at the number of features and some model evaluation metrics: RSS, Cp, Adjusted R^2, and BIC.
+
+```{r eval=TRUE}
+set.seed(1) # reproducibility
+
+regfit.full = regsubsets(Income~., data=census_df_pred, nvmax = 26)
+reg.summary = summary(regfit.full)
+
+par(mfrow = c(2,2))
+plot(reg.summary$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.summary$cp,xlab="Number of Variables",ylab="Cp",type='l')
+plot(reg.summary$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+plot(reg.summary$bic,xlab="Number of Variables",ylab="BIC",type='l')
+```
+
+By examining the plots, we can see that after about 10 features are implemented, the RSS and Cp do not decrease much further. Additionally, the Adjusted R^2 does not increase much beyond 10 features and the BIC finds its minimum at about 10 variables implemented. 
+
+```{r eval=TRUE}
+set.seed(1000)
+predict.regsubsets = function(object, newdata, id, ...){
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id=id)
+  xvars = names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+folds <- sample(1:10, nrow(census_df_pred), replace = TRUE)
+cv.mse <- matrix(NA, nrow = 10, ncol = 26)
+for(i in 1:10){
+  best.sub <- regsubsets(Income~., data = census_df_pred[folds!=i,], nvmax = 26)
+  for(j in 1:24){
+    pred.s <- predict(best.sub, census_df_pred[folds ==i,], id = j)
+    cv.mse[i,j] <- mean((census_df_pred$Income[folds ==i]- pred.s)^2)
+  }
+}
+avg.cv.mse <- apply(cv.mse,2,mean)
+plot(avg.cv.mse, type = "b", main = "MSE- 10 fold MSE, Best Subsets")
+v = which.min(avg.cv.mse)
+abline(v = which.min(avg.cv.mse), col = "blue")
+```
+
+We can now examine the most predictive variables.
+
+```{r eval=TRUE}
+regfit.best = regsubsets(Income ~ ., data = census_df_pred, nvmax = 26)
+coef(regfit.best,10)
+```
+
+## Evaluating Models
+We will start by creating a base model - that is a model with all variables included.
+
+```{r eval=TRUE}
+model.base = lm(Income ~ ., data = census_df_pred)
+summary(model.base)
+```
+
+Next, we will create a model with the features we found most predictive: Asian, Citizen, Poverty, Professional, Drive, Walk, OtherTransp WorkAtHome, Employed, and Public Work.
+
+```{r eval=TRUE}
+model.1 = lm(Income
+               ~Asian
+               +Citizen
+               +Poverty
+               +Walk
+               +Drive
+               +Professional
+               +PublicWork
+               +Employed
+               +OtherTransp
+               +WorkAtHome 
+               , data=census_df_pred)
+summary(model.1)
+```
+
+Both of these models have about the same Adjusted R^2 value - 0.75. However, many of the variables in the base model have large p-values while all of the variables in model.1 have p-values < 0.05.
+
+We can also evaluate these models using cross-validation to see how each model performs on a test set after being training set.
+
+```{r eval = TRUE}
+set.seed(1)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.base = lm(Income ~ .,data=census_df_pred[folds!=j,])
+  lm.fit.1 = lm(Income ~ Asian+Citizen+Poverty+Walk+Drive+Professional+PublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred[folds!=j,])
+  pred.base = predict(lm.fit.base,census_df_pred[folds==j,])
+  pred.1 = predict(lm.fit.1,census_df_pred[folds==j,])
+  cv.errors[j,1] = mean((census_df_pred$Income[folds==j]-pred.base)^2)
+  cv.errors[j,2] = mean((census_df_pred$Income[folds==j]-pred.1)^2)
+}
+print(cv.errors)
+mean.cv.errors = apply(cv.errors,2,mean)
+print(mean.cv.errors)
+
+```
+
+As expected, model.1 has a smaller error value because it did not overfit the training set as much. Perhaps, we can improve upon this model. Looking at the plots of each variable, it seems some might have data that are skewed.
+
+```{r eval = TRUE}
+p1 <- ggplot(census_df_pred, aes(OtherTransp,Income)) + geom_point() + geom_smooth(method ="lm")
+p2 <- ggplot(census_df_pred, aes(Poverty,Income)) + geom_point() + geom_smooth(method ="lm")
+p3 <- ggplot(census_df_pred, aes(WorkAtHome,Income)) + geom_point() + geom_smooth(method ="lm")
+p4 <- ggplot(census_df_pred, aes(Professional,Income)) + geom_point() + geom_smooth(method ="lm")
+p5 <- ggplot(census_df_pred, aes(Drive,Income)) + geom_point() + geom_smooth(method ="lm")
+p6 <- ggplot(census_df_pred, aes(Asian,Income)) + geom_point() + geom_smooth(method ="lm")
+p7 <- ggplot(census_df_pred, aes(Employed,Income)) + geom_point() + geom_smooth(method ="lm")
+p8 <- ggplot(census_df_pred, aes(Citizen,Income)) + geom_point() + geom_smooth(method ="lm")
+p9 <- ggplot(census_df_pred, aes(Walk,Income)) + geom_point() + geom_smooth(method ="lm")
+p10 <- ggplot(census_df_pred, aes(PublicWork,Income)) + geom_point() + geom_smooth(method ="lm")
+
+
+grid.arrange(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10)
+```
+
+We can look at the kernel density for each variable to get a better idea of the data's distribution.
+
+```{r eval = TRUE}
+plot(density(census_df_pred$Asian), xlab = 'Asian', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Citizen), xlab = 'Citizen', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Professional), xlab = 'Professional', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Poverty), xlab = 'Poverty', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Drive), xlab = 'Drive', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Walk), xlab = 'Walk', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$OtherTransp), xlab = 'OtherTransp', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$WorkAtHome), xlab = 'WorkAtHome', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$Employed), xlab = 'Employed', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred$PublicWork), xlab = 'PublicWork', ylab = 'Density', main = 'Kernel Density Plot')
+```
+
+Clearly, there are some variables whose data contain outliers and could benefit from a log transformation. For instance, one of our most predictive variables, OtherTransp, appears to be skewed heavily towards 0. We can perform a log transform to make the data more linearly shaped.
+
+```{r eval = TRUE}
+census_df_pred$logPoverty = log10(census_df_pred$Poverty+1)
+census_df_pred$logPublicWork = log10(census_df_pred$PublicWork+1)
+
+par(mfrow = c(1,2))
+plot(census_df_pred$Poverty, census_df_pred$Income, xlab = 'Poverty', ylab = 'Income')
+plot(census_df_pred$logPoverty, census_df_pred$Income, xlab = 'logPoverty', ylab = 'Income')
+
+plot(census_df_pred$PublicWork, census_df_pred$Income, xlab = 'PublicWork', ylab = 'Income')
+plot(census_df_pred$logPublicWork, census_df_pred$Income, xlab = 'logPublicWork', ylab = 'Income')
+```
+
+```{r eval = TRUE}
+set.seed(1)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.1 = lm(Income ~ Asian+Citizen+Poverty+Walk+Drive+Professional+PublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred[folds!=j,])
+  lm.fit.2 = lm(Income ~ Asian+Citizen+logPoverty+Walk+Drive+Professional+logPublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred[folds!=j,])
+  pred.1 = predict(lm.fit.1,census_df_pred[folds==j,])
+  pred.2 = predict(lm.fit.2,census_df_pred[folds==j,])
+  cv.errors[j,1] = mean((census_df_pred$Income[folds==j]-pred.1)^2)
+  cv.errors[j,2] = mean((census_df_pred$Income[folds==j]-pred.2)^2)
+}
+print(cv.errors)
+mean.cv.errors = apply(cv.errors,2,mean)
+print(mean.cv.errors)
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
