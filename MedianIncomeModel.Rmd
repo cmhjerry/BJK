@@ -207,11 +207,12 @@ plot(density(census_df_pred$Employed), xlab = 'Employed', ylab = 'Density', main
 plot(density(census_df_pred$PublicWork), xlab = 'PublicWork', ylab = 'Density', main = 'Kernel Density Plot')
 ```
 
-Clearly, there are some variables whose data contain outliers and could benefit from a log transformation. For instance, one of our most predictive variables, OtherTransp, appears to be skewed heavily towards 0. We can perform a log transform to make the data more linearly shaped.
+After review the distributions of the variables, it was clear that Poverty and PublicWork appear to be exponentially distributed. Therefore, we will log-transform them to make their distribution more linear. Note: When we log-transform, we will add constant to the data to avoid taking the log of 0.
 
 ```{r eval = TRUE}
-census_df_pred$logPoverty = log10(census_df_pred$Poverty+1)
-census_df_pred$logPublicWork = log10(census_df_pred$PublicWork+1)
+constant = 1
+census_df_pred$logPoverty = log10(census_df_pred$Poverty+constant)
+census_df_pred$logPublicWork = log10(census_df_pred$PublicWork+constant)
 
 par(mfrow = c(1,2))
 plot(census_df_pred$Poverty, census_df_pred$Income, xlab = 'Poverty', ylab = 'Income')
@@ -221,7 +222,7 @@ plot(census_df_pred$PublicWork, census_df_pred$Income, xlab = 'PublicWork', ylab
 plot(census_df_pred$logPublicWork, census_df_pred$Income, xlab = 'logPublicWork', ylab = 'Income')
 ```
 
-
+Now we can compare our previously optimized model with 10 variables: Asian, Citizen, Poverty, Walk, Drive, Professional, PublicWork, Employed, OtherTransp, WorkAtHome, to the optimized model with logPoverty a logPublicWork as log-transformed variables. We will evaluate the models using the MSE of their test set.
 
 ```{r eval = TRUE}
 set.seed(1)
@@ -243,14 +244,16 @@ for (j in 1:k){
 print(cv.errors)
 mean.cv.errors = apply(cv.errors,2,mean)
 print(mean.cv.errors)
-
 ```
 
+As we can see by examing the cross-validated MSE of both models, the model with Poverty and PublicWork as log-transformed variables *improves* the model.
+
+We can now use our optimized subset variables and use Ridge/Lasso Regression instead of normal linear regression. We will use cross-validation to select the optimal lambda values and to calculate the MSE on a test set.
 
 
 ```{r eval = TRUE}
-x <- model.matrix(Income~.,census_df_pred)
-dim(x)
+
+x <- model.matrix(Income~Asian+Citizen+logPoverty+Walk+Drive+Professional+logPublicWork+Employed+OtherTransp+WorkAtHome, census_df_pred)
 x <- x[,-c(1)] # remove the intercept term
 y <- census_df_pred$Income
 
@@ -267,12 +270,13 @@ set.seed(100)
 cv.out=cv.glmnet(x[train,],y[train],alpha=0,nfolds=10)
 plot(cv.out)
 bestlam=cv.out$lambda.min   #Lambda with minimum MSE
-bestlam
 ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
 mean((ridge.pred-y.test)^2)  #Test MSE associated with smallest lambda
 out=glmnet(x,y,alpha=0)
 predict(out,type="coefficients",s=bestlam)  #Now get ridge coefficients for model with best lambda
 ```
+
+The Ridge Regression does in fact have a lower MSE! Let's test Lasso.
 
 ```{r eval = TRUE}
 dim(x)
@@ -288,6 +292,8 @@ out=glmnet(x,y,alpha=1,lambda=grid)
 lasso.coef=predict(out,type="coefficients",s=bestlam)
 lasso.coef
 ```
+
+As we can see, using Ridge and Lasso Regression (with optimal lambda values) results in a lower test MSE. The lasso regression does perform slightly better, however, both models return similar coefficient values - both models have logPoverty and logPublicWork as large, negative coefficients, and OtherTransp, WorkAtHome, and Professional as large, positive coefficient values.
 
 ```{r eval = TRUE}
 
