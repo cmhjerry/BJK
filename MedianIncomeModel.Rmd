@@ -31,7 +31,7 @@ names(census_df_full)
 
 Remove columns that does not pertain to predicting median household income
 
-```{r eval=TRUE}
+```{r eval = TRUE}
 census_df <- census_df_full[,-which(names(census_df_full) %in% c("Borough", 
                                                                  "IncomeErr",
                                                                  "IncomePerCap",
@@ -221,6 +221,8 @@ plot(census_df_pred$PublicWork, census_df_pred$Income, xlab = 'PublicWork', ylab
 plot(census_df_pred$logPublicWork, census_df_pred$Income, xlab = 'logPublicWork', ylab = 'Income')
 ```
 
+
+
 ```{r eval = TRUE}
 set.seed(1)
 k = 10
@@ -244,12 +246,47 @@ print(mean.cv.errors)
 
 ```
 
-```{r eval = TRUE}
 
+
+```{r eval = TRUE}
+x <- model.matrix(Income~.,census_df_pred)
+dim(x)
+x <- x[,-c(1)] # remove the intercept term
+y <- census_df_pred$Income
+
+set.seed(1)
+train=sample(1:nrow(x), nrow(x)/2)
+test=(-train)
+y.test=y[test]
+
+grid=10^seq(10,-2,length=100)    #Grid of lambda values
+
+ridge.mod=glmnet(x[train,],y[train],alpha=0,lambda=grid, thresh=1e-12)
+
+set.seed(100)
+cv.out=cv.glmnet(x[train,],y[train],alpha=0,nfolds=10)
+plot(cv.out)
+bestlam=cv.out$lambda.min   #Lambda with minimum MSE
+bestlam
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x[test,])
+mean((ridge.pred-y.test)^2)  #Test MSE associated with smallest lambda
+out=glmnet(x,y,alpha=0)
+predict(out,type="coefficients",s=bestlam)  #Now get ridge coefficients for model with best lambda
 ```
 
 ```{r eval = TRUE}
-
+dim(x)
+lasso.mod=glmnet(x[train,],y[train],alpha=1,lambda=grid)
+plot(lasso.mod)
+set.seed(1)
+cv.out=cv.glmnet(x[train,],y[train],alpha=1)
+plot(cv.out)
+bestlam=cv.out$lambda.min
+lasso.pred=predict(lasso.mod,s=bestlam,newx=x[test,])
+mean((lasso.pred-y.test)^2)
+out=glmnet(x,y,alpha=1,lambda=grid)
+lasso.coef=predict(out,type="coefficients",s=bestlam)
+lasso.coef
 ```
 
 ```{r eval = TRUE}
