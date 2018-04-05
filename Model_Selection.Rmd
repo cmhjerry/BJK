@@ -1,0 +1,564 @@
+---
+title: "Model Selection Combined"
+author: "Jerry Chen"
+date: "4/4/2018"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r eval=TRUE}
+library(ggplot2)
+library(corrplot)
+library(leaps)
+library(gridExtra)
+```
+
+##Cleaning the Data
+
+Let's begin by reading the census data
+```{r eval=TRUE}
+census_df_full = read.csv("nyc_census.csv") # read in file
+set.seed(1) # reproducibility
+dim(census_df_full)
+```
+
+Our data contains 2167 entries and 36 variables (or features)
+
+```{r eval=TRUE}
+names(census_df_full)
+```
+
+Remove columns that does not pertain to predicting median household income
+
+```{r eval = TRUE}
+census_df_income <- census_df_full[,-which(names(census_df_full) %in% c("Borough", 
+                                                                 "IncomeErr",
+                                                                 "IncomePerCap",
+                                                                 "IncomePerCapErr"))]
+
+census_df_ipc <- census_df_full[,-which(names(census_df_full) %in% c("Borough", 
+                                                                 "Income",
+                                                                 "IncomeErr",
+                                                                 "IncomePerCapErr"))]
+# summary(census_df)
+```
+
+Our Data still contain missing values. We will remove the rows where values are missing.
+
+```{r eval=TRUE}
+census_df_naomit_income <- na.omit(census_df_income)
+census_df_naomit_ipc <- na.omit(census_df_ipc)
+
+dim(census_df_naomit_income)
+dim(census_df_naomit_ipc)
+```
+
+We will also remove the column 'County' because, while it might be preditictive, it will not contribute any interesting explanatory value. Additionally, we will remove 'White' and 'Men' because those data are repetitive as there is a 'Women' column, as well as columns for 'Asian', 'Black', 'Hispanic', and 'Native'.
+
+```{r eval=TRUE}
+census_df_rd2_income <- census_df_naomit_income[,-which(names(census_df_naomit_income) %in% c("County",
+                                                                         "White",
+                                                                         "Men"))]
+
+census_df_rd2_ipc <- census_df_naomit_ipc[,-which(names(census_df_naomit_ipc) %in% c("County",
+                                                                         "White",
+                                                                         "Men"))]
+dim(census_df_rd2_income)
+dim(census_df_rd2_ipc)
+```
+
+## Exploratory Analysis
+
+First, lets look at the correlations between our variables. (Census Track not considered for same reason as borough).
+```{r eval=TRUE}
+corrMat = cor(census_df_rd2_income[,-1], use = "pairwise.complete.obs")
+par(mfrow = c(1,1))
+corrplot(corrMat, method = "circle",title = "Median Income",mar=c(0,0,1,0))
+```
+
+```{r eval=TRUE}
+corrMat = cor(census_df_rd2_ipc[,-1], use = "pairwise.complete.obs")
+par(mfrow = c(1,1))
+corrplot(corrMat, method = "circle",title = "Income Per Capita",mar=c(0,0,1,0))
+```
+
+
+TotalPopulation is highly corrlelated with Citizen (Number of Citizens). We will remove it as it is repetitive.
+
+```{r eval=TRUE}
+census_df_rd2_income <- census_df_rd2_income[,-which(names(census_df_rd2_income) %in% c("TotalPop"))]
+census_df_pred_income <- census_df_rd2_income[,-which(names(census_df_rd2_income) %in% c("CensusTract"))]
+dim(census_df_pred_income)
+names(census_df_pred_income)
+```
+
+```{r eval=TRUE}
+census_df_rd2_ipc <- census_df_rd2_ipc[,-which(names(census_df_rd2_ipc) %in% c("TotalPop"))]
+census_df_pred_ipc <- census_df_rd2_ipc[,-which(names(census_df_rd2_ipc) %in% c("CensusTract"))]
+dim(census_df_pred_ipc)
+names(census_df_pred_ipc)
+```
+
+Now we will use Stepwise regressions to determine which features are the most predictive. To determine how many features to include in our model, we will look at the number of features and some model evaluation metrics: RSS, Cp, Adjusted R^2, and BIC.
+
+```{r eval=TRUE}
+set.seed(1) # reproducibility
+
+regfit.full.income = regsubsets(Income~., data=census_df_pred_income, nvmax = 26)
+reg.summary.income = summary(regfit.full.income)
+
+par(mfrow = c(2,2))
+plot(reg.summary.income$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.summary.income$cp,xlab="Number of Variables",ylab="Cp",type='l')
+plot(reg.summary.income$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+plot(reg.summary.income$bic,xlab="Number of Variables",ylab="BIC",type='l')
+```
+
+```{r eval=TRUE}
+set.seed(2) # reproducibility
+
+regfit.full.ipc = regsubsets(IncomePerCap~., data=census_df_pred_ipc, nvmax = 26)
+reg.summary.ipc = summary(regfit.full.ipc)
+
+par(mfrow = c(2,2))
+plot(reg.summary.ipc$rss,xlab="Number of Variables",ylab="RSS",type="l")
+plot(reg.summary.ipc$cp,xlab="Number of Variables",ylab="Cp",type='l')
+plot(reg.summary.ipc$adjr2,xlab="Number of Variables",ylab="Adjusted RSq",type="l")
+plot(reg.summary.ipc$bic,xlab="Number of Variables",ylab="BIC",type='l')
+which.min(reg.summary.ipc$bic)
+```
+
+
+By examining the plots, we can see that after about 10 features are implemented, the RSS and Cp do not decrease much further. Additionally, the Adjusted R^2 does not increase much beyond 10 features and the BIC finds its minimum at about 10 variables implemented. 
+
+```{r eval=TRUE}
+set.seed(1000)
+predict.regsubsets = function(object, newdata, id, ...){
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id=id)
+  xvars = names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+folds_income <- sample(1:10, nrow(census_df_pred_income), replace = TRUE)
+cv.mse.income <- matrix(NA, nrow = 10, ncol = 26)
+for(i in 1:10){
+  best.sub <- regsubsets(Income~., data = census_df_pred_income[folds_income!=i,], nvmax = 26)
+  for(j in 1:24){
+    pred.s <- predict(best.sub, census_df_pred_income[folds_income ==i,], id = j)
+    cv.mse.income[i,j] <- mean((census_df_pred_income$Income[folds_income ==i]- pred.s)^2)
+  }
+}
+avg.cv.mse.income <- apply(cv.mse.income,2,mean)
+plot(avg.cv.mse.income, type = "b", main = "MSE- 10 fold MSE, Best Subsets")
+v = which.min(avg.cv.mse.income)
+abline(v = which.min(avg.cv.mse.income), col = "blue")
+```
+
+```{r eval=TRUE}
+set.seed(2000)
+predict.regsubsets = function(object, newdata, id, ...){
+  form = as.formula(object$call[[2]])
+  mat = model.matrix(form, newdata)
+  coefi = coef(object, id=id)
+  xvars = names(coefi)
+  mat[,xvars]%*%coefi
+}
+
+folds_ipc <- sample(1:10, nrow(census_df_pred_ipc), replace = TRUE)
+cv.mse.ipc <- matrix(NA, nrow = 10, ncol = 26)
+for(i in 1:10){
+  best.sub <- regsubsets(IncomePerCap~., data = census_df_pred_ipc[folds_ipc!=i,], nvmax = 26)
+  for(j in 1:24){
+    pred.s <- predict(best.sub, census_df_pred_ipc[folds_ipc ==i,], id = j)
+    cv.mse.ipc[i,j] <- mean((census_df_pred_ipc$IncomePerCap[folds_ipc ==i]- pred.s)^2)
+  }
+}
+avg.cv.mse.ipc <- apply(cv.mse.ipc,2,mean)
+plot(avg.cv.mse.ipc, type = "b", main = "MSE- 10 fold MSE, Best Subsets")
+v = which.min(avg.cv.mse.ipc)
+abline(v = 10, col = "blue")
+```
+
+We can now examine the most predictive variables.
+
+```{r eval=TRUE}
+regfit.best.income = regsubsets(Income ~ ., data = census_df_pred_income, nvmax = 26)
+coef(regfit.best.income,10)
+```
+
+```{r eval=TRUE}
+regfit.best.ipc = regsubsets(IncomePerCap ~ ., data = census_df_pred_ipc, nvmax = 26)
+coef(regfit.best.ipc,10)
+```
+
+## Evaluating Models
+We will start by creating a base model - that is a model with all variables included.
+
+```{r eval=TRUE}
+model.base.income = lm(Income ~ ., data = census_df_pred_income)
+summary(model.base.income)
+```
+
+```{r eval=TRUE}
+model.base.ipc = lm(IncomePerCap ~ ., data = census_df_pred_ipc)
+summary(model.base.ipc)
+```
+
+
+Next, we will create a model with the features we found most predictive: Asian, Citizen, Poverty, Professional, Drive, Walk, OtherTransp WorkAtHome, Employed, and Public Work.
+
+```{r eval=TRUE}
+model.income.1 = lm(Income
+               ~Asian
+               +Citizen
+               +Poverty
+               +Walk
+               +Drive
+               +Professional
+               +PublicWork
+               +Employed
+               +OtherTransp
+               +WorkAtHome 
+               , data=census_df_pred_income)
+summary(model.income.1)
+```
+
+```{r eval=TRUE}
+model.ipc.1 = lm(IncomePerCap
+                 ~Asian
+                 +Poverty
+                 +Professional
+                 +Carpool
+                 +Walk
+                 +OtherTransp
+                 +WorkAtHome
+                 +MeanCommute     
+                 +Employed
+                 +PrivateWork 
+               , data=census_df_pred_ipc)
+summary(model.ipc.1)
+```
+
+
+
+Both of these models have about the same Adjusted R^2 value - 0.75. However, many of the variables in the base model have large p-values while all of the variables in model.1 have p-values < 0.05.
+
+We can also evaluate these models using cross-validation to see how each model performs on a test set after being training set.
+
+```{r eval = TRUE}
+set.seed(1)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred_income)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors.income = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.base = lm(Income ~ .,data=census_df_pred_income[folds!=j,])
+  lm.fit.1 = lm(Income ~ Asian+Citizen+Poverty+Walk+Drive+Professional+PublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred_income[folds!=j,])
+  pred.base = predict(lm.fit.base,census_df_pred_income[folds==j,])
+  pred.1 = predict(lm.fit.1,census_df_pred_income[folds==j,])
+  cv.errors.income[j,1] = mean((census_df_pred_income$Income[folds==j]-pred.base)^2)
+  cv.errors.income[j,2] = mean((census_df_pred_income$Income[folds==j]-pred.1)^2)
+}
+print(cv.errors.income)
+mean.cv.errors.income = apply(cv.errors.income,2,mean)
+print(mean.cv.errors.income)
+
+```
+
+```{r eval = TRUE}
+set.seed(1)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred_ipc)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors.ipc = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.base = lm(IncomePerCap ~ .,data=census_df_pred_ipc[folds!=j,])
+  lm.fit.2 = lm(IncomePerCap ~Asian+Poverty+Professional+Carpool+Walk+OtherTransp+WorkAtHome+MeanCommute+Employed+PrivateWork, 
+                data=census_df_pred_ipc[folds!=j,])
+  pred.base = predict(lm.fit.base,census_df_pred_ipc[folds==j,])
+  pred.2 = predict(lm.fit.2,census_df_pred_ipc[folds==j,])
+  cv.errors.ipc[j,1] = mean((census_df_pred_ipc$Income[folds==j]-pred.base)^2)
+  cv.errors.ipc[j,2] = mean((census_df_pred_ipc$Income[folds==j]-pred.2)^2)
+}
+print(cv.errors.ipc)
+mean.cv.errors.ipc = apply(cv.errors.ipc,2,mean)
+print(mean.cv.errors.ipc)
+
+```
+
+As expected, model.1 has a smaller error value because it did not overfit the training set as much. Perhaps, we can improve upon this model. Looking at the plots of each variable, it seems some might have data that are skewed.
+
+```{r eval = TRUE}
+p1_income <- ggplot(census_df_pred_income, aes(OtherTransp,Income)) + geom_point() + geom_smooth(method ="lm")
+p2_income <- ggplot(census_df_pred_income, aes(Poverty,Income)) + geom_point() + geom_smooth(method ="lm")
+p3_income <- ggplot(census_df_pred_income, aes(WorkAtHome,Income)) + geom_point() + geom_smooth(method ="lm")
+p4_income <- ggplot(census_df_pred_income, aes(Professional,Income)) + geom_point() + geom_smooth(method ="lm")
+p5_income <- ggplot(census_df_pred_income, aes(Drive,Income)) + geom_point() + geom_smooth(method ="lm")
+p6_income <- ggplot(census_df_pred_income, aes(Asian,Income)) + geom_point() + geom_smooth(method ="lm")
+p7_income <- ggplot(census_df_pred_income, aes(Employed,Income)) + geom_point() + geom_smooth(method ="lm")
+p8_income <- ggplot(census_df_pred_income, aes(Citizen,Income)) + geom_point() + geom_smooth(method ="lm")
+p9_income <- ggplot(census_df_pred_income, aes(Walk,Income)) + geom_point() + geom_smooth(method ="lm")
+p10_income <- ggplot(census_df_pred_income, aes(PublicWork,Income)) + geom_point() + geom_smooth(method ="lm")
+
+
+grid.arrange(p1_income,p2_income,p3_income,p4_income,p5_income,p6_income,p7_income,p8_income,p9_income,p10_income)
+```
+
+```{r eval = TRUE}
+p1_spc <- ggplot(census_df_pred_ipc, aes(Asian,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p2_spc <- ggplot(census_df_pred_ipc, aes(Poverty,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p3_spc <- ggplot(census_df_pred_ipc, aes(Carpool,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p4_spc <- ggplot(census_df_pred_ipc, aes(Professional,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p5_spc <- ggplot(census_df_pred_ipc, aes(Walk,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p6_spc <- ggplot(census_df_pred_ipc, aes(OtherTransp,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p7_spc <- ggplot(census_df_pred_ipc, aes(WorkAtHome,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p8_spc <- ggplot(census_df_pred_ipc, aes(MeanCommute,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p9_spc <- ggplot(census_df_pred_ipc, aes(Employed,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+p10_spc <- ggplot(census_df_pred_ipc, aes(PrivateWork,IncomePerCap)) + geom_point() + geom_smooth(method ="lm")
+
+
+grid.arrange(p1_spc,p2_spc,p3_spc,p4_spc,p5_spc,p6_spc,p7_spc,p8_spc,p9_spc,p10_spc)
+```
+
+
+We can look at the kernel density for each variable to get a better idea of the data's distribution.
+
+```{r eval = TRUE}
+plot(density(census_df_pred_income$Asian), xlab = 'Asian', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Citizen), xlab = 'Citizen', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Professional), xlab = 'Professional', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Poverty), xlab = 'Poverty', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Drive), xlab = 'Drive', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Walk), xlab = 'Walk', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$OtherTransp), xlab = 'OtherTransp', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$WorkAtHome), xlab = 'WorkAtHome', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$Employed), xlab = 'Employed', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_income$PublicWork), xlab = 'PublicWork', ylab = 'Density', main = 'Kernel Density Plot')
+```
+
+```{r eval = TRUE}
+plot(density(census_df_pred_ipc$Asian), xlab = 'Asian', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$Poverty), xlab = 'Poverty', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$Professional), xlab = 'Professional', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$Carpool), xlab = 'Carpool', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$Walk), xlab = 'Walk', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$MeanCommute), xlab = 'MeanCommute', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$OtherTransp), xlab = 'OtherTransp', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$WorkAtHome), xlab = 'WorkAtHome', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$Employed), xlab = 'Employed', ylab = 'Density', main = 'Kernel Density Plot')
+plot(density(census_df_pred_ipc$PrivateWork), xlab = 'PrivateWork', ylab = 'Density', main = 'Kernel Density Plot')
+```
+
+
+
+After review the distributions of the variables, it was clear that Poverty and PublicWork appear to be exponentially distributed. Therefore, we will log-transform them to make their distribution more linear. Note: When we log-transform, we will add constant to the data to avoid taking the log of 0.
+
+```{r eval = TRUE}
+constant = 1
+census_df_pred_income$logPoverty = log10(census_df_pred_income$Poverty+constant)
+census_df_pred_income$logPublicWork = log10(census_df_pred_income$PublicWork+constant)
+
+par(mfrow = c(1,2))
+plot(census_df_pred_income$Poverty, census_df_pred_income$Income, xlab = 'Poverty', ylab = 'Income')
+plot(census_df_pred_income$logPoverty, census_df_pred_income$Income, xlab = 'logPoverty', ylab = 'Income')
+
+plot(census_df_pred_income$PublicWork, census_df_pred_income$Income, xlab = 'PublicWork', ylab = 'Income')
+plot(census_df_pred_income$logPublicWork, census_df_pred_income$Income, xlab = 'logPublicWork', ylab = 'Income')
+```
+
+```{r eval = TRUE}
+constant = 1
+census_df_pred_ipc$logOtherTransp = log10(census_df_pred_ipc$OtherTransp+constant)
+census_df_pred_ipc$logEmployed = log10(census_df_pred_ipc$Employed+constant)
+census_df_pred_ipc$logAsian = log10(census_df_pred_ipc$Asian+constant)
+census_df_pred_ipc$logProfessional = log10(census_df_pred_ipc$Professional+constant)
+census_df_pred_ipc$logCarpool = log10(census_df_pred_ipc$Carpool+constant)
+census_df_pred_ipc$logWalk = log10(census_df_pred_ipc$Walk+constant)
+census_df_pred_ipc$logWorkAtHome = log10(census_df_pred_ipc$WorkAtHome+constant)
+census_df_pred_ipc$logMeanCommute = log10(census_df_pred_ipc$MeanCommute+constant)
+census_df_pred_ipc$logPrivateWork = log10(census_df_pred_ipc$PrivateWork+constant)
+census_df_pred_ipc$logPoverty = log10(census_df_pred_ipc$Poverty+constant)
+
+
+par(mfrow = c(1,2))
+plot(census_df_pred_ipc$OtherTransp, census_df_pred_ipc$IncomePerCap, xlab = 'OtherTransp', ylab = 'Income Per Capital')
+plot(census_df_pred_ipc$logOtherTransp, census_df_pred_ipc$IncomePerCap, xlab = 'Log(OtherTransp)', ylab = 'Income Per Capital')
+
+plot(census_df_pred_ipc$Employed, census_df_pred_ipc$IncomePerCap, xlab = 'Employed', ylab = 'Income Per Capital')
+plot(census_df_pred_ipc$logEmployed, census_df_pred_ipc$IncomePerCap, xlab = 'log(Employed)', ylab = 'Income Per Capital')
+```
+
+
+Now we can compare our previously optimized model with 10 variables: Asian, Citizen, Poverty, Walk, Drive, Professional, PublicWork, Employed, OtherTransp, WorkAtHome, to the optimized model with logPoverty a logPublicWork as log-transformed variables. We will evaluate the models using the MSE of their test set.
+
+```{r eval = TRUE}
+set.seed(3)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred_income)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors.income = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.income.1 = lm(Income ~ Asian+Citizen+Poverty+Walk+Drive+Professional+PublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred_income[folds!=j,])
+  lm.fit.income.2 = lm(Income ~ Asian+Citizen+logPoverty+Walk+Drive+Professional+logPublicWork+Employed+OtherTransp+WorkAtHome,
+                data=census_df_pred_income[folds!=j,])
+  pred.1 = predict(lm.fit.income.1,census_df_pred_income[folds==j,])
+  pred.2 = predict(lm.fit.income.2,census_df_pred_income[folds==j,])
+  cv.errors.income[j,1] = mean((census_df_pred_income$Income[folds==j]-pred.1)^2)
+  cv.errors.income[j,2] = mean((census_df_pred_income$Income[folds==j]-pred.2)^2)
+}
+print(cv.errors.income)
+mean.cv.errors.income = apply(cv.errors.income,2,mean)
+print(mean.cv.errors.income)
+```
+```{r eval = TRUE}
+set.seed(4)
+k = 10
+folds = cut(seq(1,nrow(census_df_pred_ipc)),breaks=10,labels=FALSE)
+folds = folds[sample(length(folds))]
+cv.errors.ipc = matrix(NA,k,2)
+
+for (j in 1:k){
+  lm.fit.3 = lm(IncomePerCap ~ Asian + Poverty + Professional + Carpool + Walk + OtherTransp + WorkAtHome + MeanCommute + Employed + PrivateWork, data=census_df_pred_ipc[folds!=j,])
+  lm.fit.4 = lm(IncomePerCap ~ Asian + Poverty + Professional + Carpool + Walk + OtherTransp + WorkAtHome + MeanCommute + Employed + PrivateWork, data=census_df_pred_ipc[folds!=j,])
+  pred.3 = predict(lm.fit.3,census_df_pred_ipc[folds==j,])
+  pred.4 = predict(lm.fit.4,census_df_pred_ipc[folds==j,])
+  cv.errors.ipc[j,1] = mean((census_df_pred_ipc$IncomePerCap[folds==j]-pred.1)^2)
+  cv.errors.ipc[j,2] = mean((census_df_pred_ipc$IncomePerCap[folds==j]-pred.2)^2)
+}
+print(cv.errors.ipc)
+mean.cv.errors.ipc = apply(cv.errors.ipc,2,mean)
+print(mean.cv.errors.ipc)
+```
+
+As we can see by examing the cross-validated MSE of both models, the model with Poverty and PublicWork as log-transformed variables *improves* the model.
+
+We can now use our optimized subset variables and use Ridge/Lasso Regression instead of normal linear regression. We will use cross-validation to select the optimal lambda values and to calculate the MSE on a test set.
+
+
+```{r eval = TRUE}
+library(glmnet)
+
+xi <- model.matrix(Income~Asian+Citizen+logPoverty+Walk+Drive+Professional+logPublicWork+Employed+OtherTransp+WorkAtHome, census_df_pred_income)
+xi <- xi[,-c(1)] # remove the intercept term
+yi <- census_df_pred_income$Income
+
+set.seed(1)
+traini=sample(1:nrow(xi), nrow(xi)/2)
+testi=(-traini)
+yi.test=yi[testi]
+
+grid=10^seq(10,-2,length=100)    #Grid of lambda values
+
+ridge.mod=glmnet(xi[traini,],yi[traini],alpha=0,lambda=grid, thresh=1e-12)
+
+set.seed(100)
+cv.out=cv.glmnet(xi[traini,],yi[traini],alpha=0,nfolds=10)
+plot(cv.out)
+bestlam_income=cv.out$lambda.min   #Lambda with minimum MSE
+ridge.pred=predict(ridge.mod,s=bestlam_income,newx=xi[testi,])
+mean((ridge.pred-yi.test)^2)  #Test MSE associated with smallest lambda
+out_income=glmnet(xi,yi,alpha=0)
+predict(out_income,type="coefficients",s=bestlam_income)  #Now get ridge coefficients for model with best lambda
+
+```
+```{r eval = TRUE}
+
+xipc <- model.matrix(IncomePerCap ~ Asian + Poverty + Professional + Carpool + Walk + OtherTransp + WorkAtHome + MeanCommute + Employed + PrivateWork, census_df_pred_ipc)
+xipc <- xipc[,-c(1)] # remove the intercept term
+yipc <- census_df_pred_ipc$IncomePerCap
+
+set.seed(1)
+train_ipc=sample(1:nrow(xipc), nrow(xipc)/2)
+test_ipc=(-train_ipc)
+yipc.test=yipc[test_ipc]
+
+grid=10^seq(10,-2,length=100)    #Grid of lambda values
+
+ridge.mod=glmnet(xipc[train_ipc,],yipc[train_ipc],alpha=0,lambda=grid, thresh=1e-12)
+
+set.seed(100)
+cv.out=cv.glmnet(xipc[train_ipc,],yipc[train_ipc],alpha=0,nfolds=10)
+plot(cv.out)
+bestlam_ipc=cv.out$lambda.min   #Lambda with minimum MSE
+ridge.pred=predict(ridge.mod,s=bestlam_ipc,newx=xipc[test_ipc,])
+mean((ridge.pred-yipc.test)^2)  #Test MSE associated with smallest lambda
+out_ipc=glmnet(xipc,yipc,alpha=0)
+predict(out_income,type="coefficients",s=bestlam_ipc)  #Now get ridge coefficients for model with best lambda
+
+```
+
+
+The Ridge Regression does in fact have a lower MSE! Let's test Lasso.
+
+
+```{r eval = TRUE}
+dim(x)
+lasso.mod=glmnet(xi[traini,],yi[traini],alpha=0,lambda=grid)
+plot(lasso.mod)
+set.seed(1)
+cv.out=cv.glmnet(xi[traini,],yi[traini],alpha=1)
+plot(cv.out)
+bestlam_income=cv.out$lambda.min
+lasso.pred=predict(lasso.mod,s=bestlam_income,newx=xi[testi,])
+mean((lasso.pred-yi.test)^2)
+out_income=glmnet(xi,yi,alpha=1,lambda=grid)
+lasso.coef=predict(out_income,type="coefficients",s=bestlam_income)
+lasso.coef
+```
+
+```{r eval = TRUE}
+dim(xipc)
+lasso.mod=glmnet(xipc[train_ipc,],yipc[train_ipc],alpha=0,lambda=grid)
+plot(lasso.mod)
+set.seed(1)
+cv.out=cv.glmnet(xipc[train_ipc,],yipc[train_ipc],alpha=1)
+plot(cv.out)
+bestlam_ipc=cv.out$lambda.min
+lasso.pred=predict(lasso.mod,s=bestlam_ipc,newx=xipc[test_ipc,])
+mean((lasso.pred-yipc.test)^2)
+out_ipc=glmnet(xipc,yipc,alpha=1,lambda=grid)
+lasso.coef=predict(out_ipc,type="coefficients",s=bestlam_ipc)
+lasso.coef
+```
+As we can see, using Ridge and Lasso Regression (with optimal lambda values) results in a lower test MSE. The lasso regression does perform slightly better, however, both models return similar coefficient values - both models have logPoverty and logPublicWork as large, negative coefficients, and OtherTransp, WorkAtHome, and Professional as large, positive coefficient values.
+
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
+
+```{r eval = TRUE}
+
+```
