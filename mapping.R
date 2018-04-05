@@ -13,7 +13,7 @@ gpclibPermit()
 
 setwd("~/Desktop/Brown_Data_Science/data2020/Midterm") # set working dir
 census_df_full = read.csv("Midterm Project/nyc_census.csv") # read in file
-census_df_naomit <- na.omit(census_df)
+census_df_naomit <- na.omit(census_df_full)
 colnames(census_df_naomit)[1] <- "id"
 census_df_naomit$id <- as.character(census_df_naomit$id)
 
@@ -51,6 +51,11 @@ polyFunc<-function(groupname, dat){
 }
 
 
+
+#####################################################
+# MEDIAN INCOME
+#####################################################
+
 tracts <- distinct(ggtract_na_omit, id, Income)
 tractname <- tracts$id
 polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
@@ -78,12 +83,190 @@ map1<-leaflet() %>%
     addLegend(pal = pal, 
               values = df.polygon$Income, 
               position = "bottomright", 
-              title = "Median Household Income",
+              #title = "Median Household Income",
               labFormat = labelFormat(prefix = "$"))
 map1
 
 
 
+#####################################################
+# POVERTY
+#####################################################
+
+tracts <- distinct(ggtract_na_omit, id, Poverty)
+tractname <- tracts$id
+polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
+sp.polygon<-SpatialPolygons(polygons)
+df.polygon<-SpatialPolygonsDataFrame(sp.polygon, 
+                                     data=data.frame(row.names=tractname, tracts))
+df.polygon <- df.polygon[order(df.polygon$Poverty),]
+
+popup <- paste0("GEOID: ", df.polygon$id, "<br>", "Poverty Rate: ", 
+                paste0(df.polygon$Poverty, "%"))
+pal <- colorNumeric(
+    palette = "Reds",
+    domain = df.polygon$Poverty
+)
+
+map2<-leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = df.polygon, 
+                fillColor = ~pal(Poverty), 
+                color = "#b2aeae", # you need to use hex colors
+                fillOpacity = 0.7, 
+                weight = 0.3, 
+                smoothFactor = 0.2,
+                popup = popup) %>%
+    addLegend(pal = pal, 
+              values = df.polygon$Poverty, 
+              position = "bottomright", 
+              #title = "Poverty Rate",
+              labFormat = labelFormat(suffix = "%"))
+map2
+
+
+#####################################################
+# PublicWork
+#####################################################
+
+tracts <- distinct(ggtract_na_omit, id, PublicWork)
+tractname <- tracts$id
+polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
+sp.polygon<-SpatialPolygons(polygons)
+df.polygon<-SpatialPolygonsDataFrame(sp.polygon, 
+                                     data=data.frame(row.names=tractname, tracts))
+df.polygon <- df.polygon[order(df.polygon$PublicWork),]
+
+popup <- paste0("GEOID: ", df.polygon$id, "<br>", "Population employed in public jobs: ", 
+                paste0(df.polygon$PublicWork, "%"))
+pal <- colorNumeric(
+    palette = "Oranges",
+    domain = df.polygon$PublicWork
+)
+
+map3<-leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = df.polygon, 
+                fillColor = ~pal(PublicWork), 
+                color = "#b2aeae", # you need to use hex colors
+                fillOpacity = 0.7, 
+                weight = 0.3, 
+                smoothFactor = 0.2,
+                popup = popup) %>%
+    addLegend(pal = pal, 
+              values = df.polygon$PublicWork, 
+              position = "bottomright", 
+              #title =  "Population employed in public jobs:",
+              labFormat = labelFormat(suffix = "%"))
+map3
+
+
+#####################################################
+# OtherTransp
+#####################################################
+
+tracts <- distinct(ggtract_na_omit, id, OtherTransp)
+tractname <- tracts$id
+polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
+sp.polygon<-SpatialPolygons(polygons)
+df.polygon<-SpatialPolygonsDataFrame(sp.polygon, 
+                                     data=data.frame(row.names=tractname, tracts))
+df.polygon <- df.polygon[order(df.polygon$OtherTransp),]
+
+popup <- paste0("GEOID: ", df.polygon$id, "<br>", "Population commuting via other means: ", 
+                paste0(df.polygon$OtherTransp, "%"))
+pal <- colorNumeric(
+    palette = "Greens",
+    domain = df.polygon$OtherTransp
+)
+
+map4<-leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = df.polygon, 
+                fillColor = ~pal(OtherTransp), 
+                color = "#b2aeae", # you need to use hex colors
+                fillOpacity = 0.7, 
+                weight = 0.3, 
+                smoothFactor = 0.2,
+                popup = popup) %>%
+    addLegend(pal = pal, 
+              values = df.polygon$OtherTransp, 
+              position = "bottomright", 
+              #title =  "Commuting via other means:",
+              labFormat = labelFormat(suffix = "%"))
+map4
+
+
+#####################################################
+# WorkAtHome
+#####################################################
+
+tracts <- distinct(ggtract_na_omit, id, WorkAtHome)
+tractname <- tracts$id
+polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
+sp.polygon<-SpatialPolygons(polygons)
+df.polygon<-SpatialPolygonsDataFrame(sp.polygon, 
+                                     data=data.frame(row.names=tractname, tracts))
+df.polygon <- df.polygon[order(df.polygon$WorkAtHome),]
+
+popup <- paste0("GEOID: ", df.polygon$id, "<br>", "Population working at home: ", 
+                paste0(df.polygon$WorkAtHome, "%"))
+pal <- colorNumeric(
+    palette = "Blues",
+    domain = df.polygon$WorkAtHome
+)
+
+map5<-leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = df.polygon, 
+                fillColor = ~pal(WorkAtHome), 
+                color = "#b2aeae", # you need to use hex colors
+                fillOpacity = 0.7, 
+                weight = 0.3, 
+                smoothFactor = 0.2,
+                popup = popup) %>%
+    addLegend(pal = pal, 
+              values = df.polygon$WorkAtHome, 
+              position = "bottomright", 
+              #title =  "Population working at home:",
+              labFormat = labelFormat(suffix = "%"))
+map5
+
+
+#####################################################
+# Professional
+#####################################################
+
+tracts <- distinct(ggtract_na_omit, id, Professional)
+tractname <- tracts$id
+polygons<-lapply(tractname, function(x) polyFunc(x, dat=ggtract_na_omit)) 
+sp.polygon<-SpatialPolygons(polygons)
+df.polygon<-SpatialPolygonsDataFrame(sp.polygon, 
+                                     data=data.frame(row.names=tractname, tracts))
+df.polygon <- df.polygon[order(df.polygon$Professional),]
+
+popup <- paste0("GEOID: ", df.polygon$id, "<br>", "Population employed in management, business, science, and arts: ", 
+                paste0(df.polygon$Professional, "%"))
+pal <- colorNumeric(
+    palette = "Purples",
+    domain = df.polygon$Professional
+)
+
+map6<-leaflet() %>%
+    addProviderTiles("CartoDB.Positron") %>%
+    addPolygons(data = df.polygon, 
+                fillColor = ~pal(Professional), 
+                color = "#b2aeae", # you need to use hex colors
+                fillOpacity = 0.7, 
+                weight = 0.3, 
+                smoothFactor = 0.2,
+                popup = popup) %>%
+    addLegend(pal = pal, 
+              values = df.polygon$Professional, 
+              position = "bottomright", 
+              #title =  "Pop. employed in management, business, science, and arts:",
+              labFormat = labelFormat(suffix = "%"))
+map6
 
 
 ## OLD ##
